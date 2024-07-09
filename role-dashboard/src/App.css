@@ -1,0 +1,8 @@
+.App {
+  text-align: center;
+}
+
+.App select {
+  margin: 20px;
+  padding: 10px;
+}
