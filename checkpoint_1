@@ -1,0 +1,325 @@
+
+
+# Remove blinker
+!sudo apt-get remove python3-blinker -y
+
+# Reinstall blinker
+!pip install blinker
+
+# Install dash
+!pip install dash
+
+# Install Pandas, Plotly
+!pip install pandas plotly
+
+# Install Prophet
+!pip install prophet
+
+!pip install flask flask-caching dash pandas plotly scikit-learn joblib flask-login prophet
+------------------------------------------------------------------------------------------------------------------------------------------------
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_squared_error
+import joblib
+from flask_caching import Cache
+import dash
+from dash import dcc, html
+from dash.dependencies import Input, Output
+import plotly.express as px
+import plotly.graph_objects as go
+from prophet import Prophet
+
+# Initialize Dash app
+app = dash.Dash(__name__)
+app.config.suppress_callback_exceptions = True
+
+# Configure cache
+cache = Cache(app.server, config={
+    'CACHE_TYPE': 'simple'  # Simple cache for example; for production use Redis or Memcached
+})
+cache.init_app(app.server)
+
+# Load and cache data
+@cache.cached(timeout=50, key_prefix='all_data')
+def get_data():
+    file_path = '/content/Simulated-FedEx Dataset-Omnihole_Update.csv'
+    data = pd.read_csv(file_path)
+    data['Process_ID_Numeric'] = data['Process_ID'].str.extract(r'(\d+)').astype(int)
+    return data
+
+data = get_data()
+
+# Prepare data for machine learning model
+features = ['Cycle_Time', 'Employee_Productivity', 'Resource_Utilization', 'Damaged_Packages', 'Lost_Packages', 'Employee_Turnover_Rate', 'Training_Hours']
+target = 'Total_Cost'
+X = data[features]
+y = data[target]
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Train a linear regression model
+model = LinearRegression()
+model.fit(X_train, y_train)
+y_pred = model.predict(X_test)
+mse = mean_squared_error(y_test, y_pred)
+print(f"Mean Squared Error: {mse}")
+joblib.dump(model, 'fedex_cost_prediction_model.pkl')
+
+# KPI mapping for stakeholders with geographical data
+stakeholder_kpis = {
+    'warehouse_manager': ['Cycle_Time', 'Total_Cost', 'Employee_Productivity', 'Resource_Utilization', 'Damaged_Packages', 'Lost_Packages', 'Employee_Turnover_Rate', 'Training_Hours', 'City', 'State', 'Latitude', 'Longitude'],
+    'delivery_agent': ['Delivery_Time', 'On_Time_Delivery', 'Fuel_Consumption', 'Customer_Complaints', 'Late_Deliveries', 'City', 'State', 'Latitude', 'Longitude'],
+    'logistics_manager': data.columns.tolist(),
+    'general_manager': data.columns.tolist(),
+    'marketing_head': ['Customer_Satisfaction', 'On_Time_Delivery', 'Customer_Complaints', 'City', 'State', 'Latitude', 'Longitude'],
+    'administration_head': ['Total_Cost', 'Vehicle_Maintenance_Cost', 'Employee_Turnover_Rate', 'Training_Hours', 'City', 'State', 'Latitude', 'Longitude']
+}
+
+# Define applicable visualization types for each KPI
+kpi_visualizations = {
+    'Cycle_Time': ['Line Chart', 'Scatter Plot', 'Bar Chart', 'Heatmap', 'Bubble Chart', 'Comparative Analysis'],
+    'Total_Cost': ['Line Chart', 'Bar Chart', 'Pie Chart', 'Heatmap', 'Comparative Analysis'],
+    'Employee_Productivity': ['Line Chart', 'Scatter Plot', 'Radar Chart', 'Comparative Analysis'],
+    'Resource_Utilization': ['Pie Chart', 'Bar Chart', 'Comparative Analysis'],
+    'Damaged_Packages': ['Bar Chart', 'Comparative Analysis'],
+    'Lost_Packages': ['Bar Chart', 'Comparative Analysis'],
+    'Employee_Turnover_Rate': ['Line Chart', 'Scatter Plot', 'Radar Chart', 'Comparative Analysis'],
+    'Training_Hours': ['Line Chart', 'Bar Chart', 'Funnel Chart', 'Comparative Analysis'],
+    'Delivery_Time': ['Line Chart', 'Scatter Plot', 'Bubble Chart', 'Comparative Analysis'],
+    'On_Time_Delivery': ['Line Chart', 'Bar Chart', 'Comparative Analysis'],
+    'Fuel_Consumption': ['Line Chart', 'Scatter Plot', 'Bubble Chart', 'Comparative Analysis'],
+    'Customer_Complaints': ['Line Chart', 'Bar Chart', 'Tree Map', 'Comparative Analysis'],
+    'Late_Deliveries': ['Bar Chart', 'Comparative Analysis'],
+    'Customer_Satisfaction': ['Line Chart', 'Pie Chart', 'Comparative Analysis'],
+    'Vehicle_Maintenance_Cost': ['Line Chart', 'Bar Chart', 'Comparative Analysis'],
+    'City': ['Map'],
+    'State': ['Map'],
+    'Latitude': ['Map'],
+    'Longitude': ['Map']
+}
+
+# Initialize the Dash app
+app = dash.Dash(__name__)
+app.config.suppress_callback_exceptions = True
+
+# Define the CSS styles for the dashboard
+app.layout = html.Div([
+    html.H1("FedEx KPI Dashboard", style={'textAlign': 'center', 'color': 'white', 'background-color': '#0074D9', 'padding': '20px', 'border': '2px solid black'}),
+    dcc.Dropdown(
+        id='stakeholder-dropdown',
+        options=[
+            {'label': 'Warehouse Manager', 'value': 'warehouse_manager'},
+            {'label': 'Delivery Agent', 'value': 'delivery_agent'},
+            {'label': 'Logistics Manager', 'value': 'logistics_manager'},
+            {'label': 'General Manager', 'value': 'general_manager'},
+            {'label': 'Marketing Head', 'value': 'marketing_head'},
+            {'label': 'Administration Head', 'value': 'administration_head'}
+        ],
+        value='warehouse_manager',
+        style={'width': '50%', 'margin': 'auto'}
+    ),
+    html.Br(),
+    html.Label("Select Process ID Range:"),
+    dcc.RangeSlider(
+        id='process-id-slider',
+        min=data['Process_ID_Numeric'].min(),
+        max=data['Process_ID_Numeric'].max(),
+        value=[data['Process_ID_Numeric'].min(), data['Process_ID_Numeric'].max()],
+        marks={i: str(i) for i in range(data['Process_ID_Numeric'].min(), data['Process_ID_Numeric'].max() + 1, 50)},  # Increased interval to 50
+        step=1,
+        allowCross=False
+    ),
+    dcc.Tabs(id='kpi-tabs'),
+    html.Br(),
+    dcc.Dropdown(id='visualization-dropdown', style={'width': '50%', 'margin': 'auto'}),
+    html.Div(id='second-kpi-container', style={'display': 'none'}, children=[
+        html.Label("Select Second KPI for Comparison:"),
+        dcc.Dropdown(id='second-kpi-dropdown', style={'width': '50%', 'margin': 'auto'})
+    ]),
+    html.Div(id='graphs-container', style={'margin-top': '20px', 'border': '2px solid black', 'padding': '10px', 'background-color': '#f0f0f0'}),
+    html.Div(id='details-container', style={'margin-top': '20px', 'border': '2px solid black', 'padding': '10px', 'background-color': '#f0f0f0', 'display': 'none'}),
+])
+
+# Callback to update KPI tabs based on selected stakeholder
+@app.callback(
+    Output('kpi-tabs', 'children'),
+    [Input('stakeholder-dropdown', 'value')]
+)
+def update_kpi_tabs(stakeholder):
+    kpis = stakeholder_kpis.get(stakeholder, [])
+    return [dcc.Tab(label=kpi.replace('_', ' '), value=kpi) for kpi in kpis]
+
+# Callback to update visualization dropdown based on selected KPI
+@app.callback(
+    [Output('visualization-dropdown', 'options'),
+     Output('second-kpi-container', 'style')],
+    [Input('kpi-tabs', 'value')]
+)
+def update_visualization_options(selected_kpi):
+    if selected_kpi:
+        visualizations = kpi_visualizations.get(selected_kpi, [])
+        if 'Comparative Analysis' in visualizations:
+            return [{'label': viz, 'value': viz} for viz in visualizations], {'display': 'block'}
+        return [{'label': viz, 'value': viz} for viz in visualizations], {'display': 'none'}
+    return [], {'display': 'none'}
+
+# Callback to update second KPI dropdown for comparative analysis
+@app.callback(
+    Output('second-kpi-dropdown', 'options'),
+    [Input('stakeholder-dropdown', 'value')]
+)
+def update_second_kpi_dropdown(stakeholder):
+    kpis = stakeholder_kpis.get(stakeholder, [])
+    return [{'label': kpi.replace('_', ' '), 'value': kpi} for kpi in kpis]
+
+# Callback to update graphs and suggestions based on dropdown selection and range slider
+@app.callback(
+    [Output('graphs-container', 'children'),
+     Output('details-container', 'children'),
+     Output('details-container', 'style')],
+    [Input('stakeholder-dropdown', 'value'),
+     Input('process-id-slider', 'value'),
+     Input('kpi-tabs', 'value'),
+     Input('visualization-dropdown', 'value'),
+     Input('second-kpi-dropdown', 'value')]
+)
+def update_graphs_and_suggestions(stakeholder, process_id_range, selected_kpi, selected_visualization, second_kpi):
+    try:
+        # Filter data for selected range
+        filtered_data = data[(data['Process_ID_Numeric'] >= process_id_range[0]) & (data['Process_ID_Numeric'] <= process_id_range[1])]
+
+        # Filter data for 'Before' BPR implementation
+        filtered_data_before = filtered_data[filtered_data['BPR_Implementation'] == 'Before']
+
+        # Filter data for 'After' BPR implementation
+        filtered_data_after = filtered_data[filtered_data['BPR_Implementation'] == 'After']
+
+        if not selected_kpi or not selected_visualization:
+            return [], "", {'display': 'none'}
+
+        if selected_visualization == 'Comparative Analysis':
+            if not second_kpi:
+                return [], "", {'display': 'none'}
+            fig_before = px.scatter(filtered_data_before, x=selected_kpi, y=second_kpi, title=f'Comparative Analysis of {selected_kpi.replace("_", " ")} and {second_kpi.replace("_", " ")} - Before')
+            fig_after = px.scatter(filtered_data_after, x=selected_kpi, y=second_kpi, title=f'Comparative Analysis of {selected_kpi.replace("_", " ")} and {second_kpi.replace("_", " ")} - After')
+        else:
+            if selected_visualization == 'Line Chart':
+                fig_before = px.line(filtered_data_before, x='Process_ID', y=selected_kpi, title=f'{selected_kpi.replace("_", " ")} - Before')
+                fig_after = px.line(filtered_data_after, x='Process_ID', y=selected_kpi, title=f'{selected_kpi.replace("_", " ")} - After')
+            elif selected_visualization == 'Scatter Plot':
+                fig_before = px.scatter(filtered_data_before, x='Process_ID', y=selected_kpi, title=f'{selected_kpi.replace("_", " ")} - Before')
+                fig_after = px.scatter(filtered_data_after, x='Process_ID', y=selected_kpi, title=f'{selected_kpi.replace("_", " ")} - After')
+            elif selected_visualization == 'Bar Chart':
+                fig_before = px.bar(filtered_data_before, x='Process_ID', y=selected_kpi, title=f'{selected_kpi.replace("_", " ")} - Before')
+                fig_after = px.bar(filtered_data_after, x='Process_ID', y=selected_kpi, title=f'{selected_kpi.replace("_", " ")} - After')
+            elif selected_visualization == 'Pie Chart' and selected_kpi in ['Resource_Utilization', 'Total_Cost', 'Customer_Satisfaction']:
+                fig_before = px.pie(filtered_data_before, names='Process_ID', values=selected_kpi, title=f'{selected_kpi.replace("_", " ")} - Before')
+                fig_after = px.pie(filtered_data_after, names='Process_ID', values=selected_kpi, title=f'{selected_kpi.replace("_", " ")} - After')
+            elif selected_visualization == 'Heatmap':
+                fig_before = px.density_heatmap(filtered_data_before, x='Process_ID', y=selected_kpi, title=f'{selected_kpi.replace("_", " ")} - Before')
+                fig_after = px.density_heatmap(filtered_data_after, x='Process_ID', y=selected_kpi, title=f'{selected_kpi.replace("_", " ")} - After')
+            elif selected_visualization == 'Bubble Chart':
+                fig_before = px.scatter(filtered_data_before, x='Process_ID', y=selected_kpi, size=selected_kpi, title=f'{selected_kpi.replace("_", " ")} - Before')
+                fig_after = px.scatter(filtered_data_after, x='Process_ID', y=selected_kpi, size=selected_kpi, title=f'{selected_kpi.replace("_", " ")} - After')
+            elif selected_visualization == 'Radar Chart':
+                categories = filtered_data_before['Process_ID'].tolist()
+                fig_before = go.Figure()
+                fig_before.add_trace(go.Scatterpolar(
+                    r=filtered_data_before[selected_kpi].tolist(),
+                    theta=categories,
+                    fill='toself',
+                    name='Before'
+                ))
+                fig_before.update_layout(
+                    polar=dict(
+                        radialaxis=dict(
+                            visible=True,
+                            range=[0, max(filtered_data[selected_kpi].max(), 1)]
+                        )),
+                    title=f'{selected_kpi.replace("_", " ")} - Before'
+                )
+                fig_after = go.Figure()
+                fig_after.add_trace(go.Scatterpolar(
+                    r=filtered_data_after[selected_kpi].tolist(),
+                    theta=categories,
+                    fill='toself',
+                    name='After'
+                ))
+                fig_after.update_layout(
+                    polar=dict(
+                        radialaxis=dict(
+                            visible=True,
+                            range=[0, max(filtered_data[selected_kpi].max(), 1)]
+                        )),
+                    title=f'{selected_kpi.replace("_", " ")} - After'
+                )
+            elif selected_visualization == 'Funnel Chart':
+                fig_before = px.funnel(filtered_data_before, x='Process_ID', y=selected_kpi, title=f'{selected_kpi.replace("_", " ")} - Before')
+                fig_after = px.funnel(filtered_data_after, x='Process_ID', y=selected_kpi, title=f'{selected_kpi.replace("_", " ")} - After')
+            elif selected_visualization == 'Tree Map':
+                fig_before = px.treemap(filtered_data_before, path=['Process_ID'], values=selected_kpi, title=f'{selected_kpi.replace("_", " ")} - Before')
+                fig_after = px.treemap(filtered_data_after, path=['Process_ID'], values=selected_kpi, title=f'{selected_kpi.replace("_", " ")} - After')
+            elif selected_visualization == 'Map' and selected_kpi in ['City', 'State']:
+                # Map visualization based on City and State
+                fig_before = px.scatter_mapbox(
+                    filtered_data_before,
+                    lat='Latitude',
+                    lon='Longitude',
+                    hover_name=selected_kpi,
+                    color=selected_kpi,
+                    title=f'{selected_kpi.replace("_", " ")} - Before',
+                    mapbox_style="carto-positron"
+                )
+                fig_after = px.scatter_mapbox(
+                    filtered_data_after,
+                    lat='Latitude',
+                    lon='Longitude',
+                    hover_name=selected_kpi,
+                    color=selected_kpi,
+                    title=f'{selected_kpi.replace("_", " ")} - After',
+                    mapbox_style="carto-positron"
+                )
+            elif selected_visualization == 'Map' and selected_kpi in ['Latitude', 'Longitude']:
+                # Map visualization based on Latitude and Longitude
+                fig_before = px.scatter_mapbox(
+                    filtered_data_before,
+                    lat='Latitude',
+                    lon='Longitude',
+                    color=selected_kpi,
+                    title=f'{selected_kpi.replace("_", " ")} - Before',
+                    mapbox_style="carto-positron"
+                )
+                fig_after = px.scatter_mapbox(
+                    filtered_data_after,
+                    lat='Latitude',
+                    lon='Longitude',
+                    color=selected_kpi,
+                    title=f'{selected_kpi.replace("_", " ")} - After',
+                    mapbox_style="carto-positron"
+                )
+            else:
+                fig_before = None
+                fig_after = None
+
+        graphs = []
+        if fig_before and fig_after:
+            graphs = [
+                dcc.Graph(figure=fig_before),
+                dcc.Graph(figure=fig_after)
+            ]
+
+        # Show details container if a tab is selected
+        details_style = {'margin-top': '20px', 'border': '2px solid black', 'padding': '10px', 'background-color': '#f0f0f0'}
+        if selected_kpi:
+            details_style['display'] = 'block'
+        else:
+            details_style['display'] = 'none'
+
+        return graphs, "", details_style
+
+    except Exception as e:
+        print(f"Error: {e}")
+        return [], "", {'display': 'none'}
+
+if __name__ == '__main__':
+    app.run_server(debug=True, port=8051)  # Changed port to 8051
