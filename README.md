@@ -1,2 +1,2 @@
 # IBM-internship
-# Developers: Prannti Agnihotri, Nandit Sharma, Rajeev Nath Tiwari, Charul Sharma.
+# Developers:  Nandit Sharma,Prannti Agnihotri, Rajeev Nath Tiwari, Charul Sharma.
